@@ -1,0 +1,7 @@
+Pastikan terhubung ke internet, - jangan lupa open folder projectnya.
+
+buka terminal baru dan jalankan :
+
+python -m streamlit run main.py
+
+lalu kamu akan di arahklan ke web, dan aplikasi bisa langsung di gunakan.

@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from supabase import create_client, Client
 import config
 from io import BytesIO
+import numpy as np
 
 # Koneksi ke Supabase
 def connect_supabase() -> Client:
@@ -21,143 +22,215 @@ def fetch_total_data():
     response = supabase.table("jumlah_penduduk_miskin").select("*").execute()
     return pd.DataFrame(response.data)
 
-# Fungsi untuk menyimpan grafik sebagai file gambar berkualitas tinggi
+# Simpan grafik atau tabel sebagai file gambar berkualitas tinggi
 def save_figure_as_image(fig, dpi=600):
     buf = BytesIO()
-    fig.savefig(buf, format="png", dpi=dpi)  # Simpan grafik dengan DPI tinggi
+    fig.savefig(buf, format="png", dpi=dpi)
     buf.seek(0)
     return buf
 
+# Peramalan menggunakan metode Kuadrat Terkecil
+def forecast_least_squares(years, values, forecast_years):
+    x = np.arange(len(years))
+    y = values.values.astype(float)
+
+    # Hitung koefisien regresi linier
+    A = np.vstack([x, np.ones(len(x))]).T
+    a, b = np.linalg.lstsq(A, y, rcond=None)[0]
+
+    # Prediksi untuk tahun-tahun mendatang
+    x_forecast = np.arange(len(years), len(years) + len(forecast_years))
+    forecast_values = a * x_forecast + b
+
+    return forecast_years, forecast_values
+
+# Fungsi untuk menyesuaikan lebar segmen lingkaran
+def adjust_pie_sizes(sizes, min_percent=1, max_percent=5):
+    total = sum(sizes)
+    adjusted_sizes = []
+
+    for size in sizes:
+        percent = (size / total) * 100
+        if percent < min_percent:
+            adjusted_sizes.append(min_percent)  # Berikan nilai minimum untuk segmen kecil
+        elif percent > max_percent:
+            adjusted_sizes.append(max_percent)  # Batasi ukuran maksimum segmen besar
+        else:
+            adjusted_sizes.append(percent)  # Gunakan ukuran asli jika sesuai
+
+    # Skalakan kembali ke total ukuran asli
+    scaling_factor = total / sum(adjusted_sizes)
+    adjusted_sizes = [size * scaling_factor for size in adjusted_sizes]
+    return adjusted_sizes
+
 # Fungsi utama untuk layar Grafik Se-Jawa Timur
 def sejawatimurscreen():
-    st.title("Grafik Se-Jawa Timur")
-    
+    st.title("Grafik dan Tabel Se-Jawa Timur")
+
     # Pilihan Tahun untuk Grafik Lingkaran
-    year = st.selectbox("Pilih Tahun", [str(y) for y in range(2007, 2025)])
-    
-    # Tombol: Generate Grafik Lingkaran Berdasarkan Tahun
+    year = st.selectbox("Pilih Tahun", [str(y) for y in range(2007, 2028)])  # Tambahkan tahun 2025–2027
+
+    # Grafik Lingkaran Berdasarkan Tahun
     if st.button("Generate Grafik Lingkaran"):
-        year_data = fetch_by_year(year)
-        if not year_data.empty:
-            labels = year_data["id"]
-            sizes = year_data[year]
-            
-            # Gabungkan segmen kecil
-            threshold = 1  # Segmen dengan nilai <1% akan digabung
-            filtered_labels = []
-            filtered_sizes = []
-            other_size = 0
+        if year in ["2025", "2026", "2027"]:
+            # Data ramalan
+            all_data = fetch_total_data()
+            if not all_data.empty:
+                all_data = all_data[all_data["id"] != "jawa timur"]
+                forecast_years = ["2025", "2026", "2027"]
 
-            for label, size in zip(labels, sizes):
-                percentage = (size / sum(sizes)) * 100
-                if percentage < threshold:
-                    other_size += size
-                else:
-                    filtered_labels.append(label)
-                    filtered_sizes.append(size)
+                # Hitung total peramalan
+                forecast_totals = []
+                for _, row in all_data.iterrows():
+                    years = [col for col in row.index if col.isnumeric()]
+                    values = row[years].values.astype(float)
+                    _, forecast_values = forecast_least_squares(years, pd.Series(values), forecast_years)
+                    forecast_totals.append(sum(forecast_values))
 
-            # Tambahkan kategori "Lainnya"
-            if other_size > 0:
-                filtered_labels.append("Lainnya")
-                filtered_sizes.append(other_size)
+                labels = all_data["id"].tolist()
+                sizes = adjust_pie_sizes(forecast_totals, min_percent=1, max_percent=5)
 
-            # Buat Grafik Lingkaran
-            fig, ax = plt.subplots(figsize=(20, 20))
-            explode = [0.05 if size > (sum(filtered_sizes) * 0.05) else 0 for size in filtered_sizes]  # Pisahkan segmen besar
-            wedges, texts, autotexts = ax.pie(
-                filtered_sizes,
-                labels=filtered_labels,
-                autopct='%1.1f%%',
-                startangle=140,
-                explode=explode,
-                labeldistance=1.4,  # Jarak label
-                pctdistance=0.85,   # Jarak persentase
-                wedgeprops={'linewidth': 1.5, 'edgecolor': 'white'}  # Tambah ruang antar segmen
-            )
-            ax.set_title(f"Distribusi Penduduk Miskin - Tahun {year}")
-            plt.tight_layout()  # Hindari elemen terpotong
-            
-            # Tampilkan Grafik di Streamlit
-            st.pyplot(fig)
+                # Grafik Lingkaran
+                fig, ax = plt.subplots(figsize=(20, 20))
+                explode = [0.05 if size > (sum(sizes) * 0.05) else 0 for size in sizes]
+                wedges, texts, autotexts = ax.pie(
+                    sizes,
+                    labels=labels,
+                    autopct='%1.1f%%',
+                    startangle=140,
+                    explode=explode,
+                    labeldistance=1.4,
+                    pctdistance=0.85,
+                    wedgeprops={'linewidth': 1.5, 'edgecolor': 'white'}
+                )
+                ax.set_title(f"Distribusi Penduduk Miskin - Tahun {year} (Ramalan)")
+                plt.tight_layout()
+                st.pyplot(fig)
 
-            # Tombol Download
-            buf = save_figure_as_image(fig)
-            st.download_button(
-                label="Download Grafik Lingkaran",
-                data=buf,
-                file_name=f"grafik_lingkaran_{year}.png",
-                mime="image/png"
-            )
+                # Tombol Download Grafik Lingkaran
+                buf = save_figure_as_image(fig)
+                st.download_button(
+                    label=f"Download Grafik Lingkaran {year}",
+                    data=buf,
+                    file_name=f"grafik_lingkaran_{year}.png",
+                    mime="image/png"
+                )
         else:
-            st.write("Data tidak ditemukan.")
-    
-    # Tombol: Generate Grafik Batang Total Jawa Timur
+            # Data asli
+            year_data = fetch_by_year(year)
+            if not year_data.empty:
+                labels = year_data["id"]
+                sizes = adjust_pie_sizes(year_data[year].values, min_percent=1, max_percent=5)
+
+                # Grafik Lingkaran
+                fig, ax = plt.subplots(figsize=(20, 20))
+                explode = [0.05 if size > (sum(sizes) * 0.05) else 0 for size in sizes]
+                wedges, texts, autotexts = ax.pie(
+                    sizes,
+                    labels=labels,
+                    autopct='%1.1f%%',
+                    startangle=140,
+                    explode=explode,
+                    labeldistance=1.4,
+                    pctdistance=0.85,
+                    wedgeprops={'linewidth': 1.5, 'edgecolor': 'white'}
+                )
+                ax.set_title(f"Distribusi Penduduk Miskin - Tahun {year}")
+                plt.tight_layout()
+                st.pyplot(fig)
+
+                # Tombol Download Grafik Lingkaran
+                buf = save_figure_as_image(fig)
+                st.download_button(
+                    label=f"Download Grafik Lingkaran {year}",
+                    data=buf,
+                    file_name=f"grafik_lingkaran_{year}.png",
+                    mime="image/png"
+                )
+
+    # Grafik Batang Jawa Timur
     if st.button("Generate Grafik Batang Total Jawa Timur"):
         total_data = fetch_total_data()
         if not total_data.empty:
             total_data = total_data[total_data["id"] == "jawa timur"]
             years = [col for col in total_data.columns if col.isnumeric()]
             values = total_data.iloc[0][years]
-            
-            # Buat Grafik Batang
+
+            # Peramalan untuk 2025-2027
+            forecast_years = ["2025", "2026", "2027"]
+            forecast_years, forecast_values = forecast_least_squares(years, values, forecast_years)
+
+            # Gabungkan data asli dan ramalan
+            all_years = years + forecast_years
+            all_values = list(values) + list(forecast_values)
+
+            # Grafik Batang
             fig, ax = plt.subplots(figsize=(20, 10))
-            ax.bar(years, values, color="skyblue", label="Data")
-            ax.plot(years, values, color="red", marker="o", label="Tren")
-            ax.set_title("Grafik Total Jumlah Penduduk Miskin - Jawa Timur (2007–2024)")
+            ax.bar(years, values, color="skyblue", label="Data Asli")
+            ax.bar(forecast_years, forecast_values, color="orange", label="Data Ramalan")
+            ax.plot(all_years, all_values, color="red", marker="o", label="Tren Data dan Ramalan")
+            ax.set_title("Grafik Total Jumlah Penduduk Miskin - Jawa Timur (2007–2027)")
             ax.set_xlabel("Tahun")
             ax.set_ylabel("Jumlah Penduduk Miskin (Ribu)")
             ax.legend()
             plt.tight_layout()
-
-            # Tampilkan Grafik di Streamlit
             st.pyplot(fig)
 
-            # Tombol Download
+            # Tombol Download Grafik Batang
             buf = save_figure_as_image(fig)
             st.download_button(
-                label="Download Grafik Batang",
+                label="Download Grafik Batang Jawa Timur",
                 data=buf,
                 file_name="grafik_batang_jawa_timur.png",
                 mime="image/png"
             )
-        else:
-            st.write("Data tidak ditemukan.")
-    
-    # Tombol: Generate Grafik Lingkaran Total Semua Tahun
-    if st.button("Generate Grafik Lingkaran Total Semua Tahun"):
-        total_data = fetch_total_data()
-        if not total_data.empty:
-            total_data = total_data[total_data["id"] != "jawa timur"]
-            total_data["total"] = total_data[[str(y) for y in range(2007, 2025)]].sum(axis=1)
-            labels = total_data["id"]
-            sizes = total_data["total"]
-            
-            # Atur Grafik Lingkaran Total
-            fig, ax = plt.subplots(figsize=(20, 20))
-            wedges, texts, autotexts = ax.pie(
-                sizes,
-                labels=labels,
-                autopct='%1.1f%%',
-                startangle=140,
-                labeldistance=1.4,
-                pctdistance=0.85,
-                wedgeprops={'linewidth': 1.5, 'edgecolor': 'white'}
-            )
-            ax.set_title("Distribusi Total Penduduk Miskin - Semua Tahun (2007–2024)")
-            plt.tight_layout()
-            st.pyplot(fig)
 
-            # Tombol Download
-            buf = save_figure_as_image(fig)
+            # Tabel Data Jawa Timur (2007–2027)
+            table_data = pd.DataFrame({
+                "Tahun": all_years,
+                "Jumlah Penduduk Miskin (Ribu)": all_values
+            })
+            st.dataframe(table_data)
+            buf = BytesIO()
+            table_data.to_csv(buf, index=False)
             st.download_button(
-                label="Download Grafik Lingkaran Total",
-                data=buf,
-                file_name="grafik_lingkaran_total_semua_tahun.png",
-                mime="image/png"
+                label="Download Tabel Jawa Timur",
+                data=buf.getvalue(),
+                file_name="tabel_jawa_timur.csv",
+                mime="text/csv"
             )
-        else:
-            st.write("Data tidak ditemukan.")
-    
+
+    # Tabel Semua Daerah dengan Ramalan
+    if st.button("Tampilkan Tabel Lengkap Semua Daerah"):
+        all_data = fetch_total_data()
+        if not all_data.empty:
+            all_data = all_data[all_data["id"] != "jawa timur"]
+            forecast_years = ["2025", "2026", "2027"]
+
+            # Tambahkan data ramalan untuk setiap daerah
+            full_table = []
+            for _, row in all_data.iterrows():
+                years = [col for col in row.index if col.isnumeric()]
+                values = row[years].values.astype(float)
+                _, forecast_values = forecast_least_squares(years, pd.Series(values), forecast_years)
+                row_data = list(values) + list(forecast_values)
+                full_table.append([row["id"]] + row_data)
+
+            # Buat tabel lengkap
+            columns = ["Daerah"] + years + forecast_years
+            full_table_df = pd.DataFrame(full_table, columns=columns)
+            st.dataframe(full_table_df)
+
+            # Tombol Download Tabel Lengkap
+            buf = BytesIO()
+            full_table_df.to_csv(buf, index=False)
+            st.download_button(
+                label="Download Tabel Lengkap Semua Daerah",
+                data=buf.getvalue(),
+                file_name="tabel_lengkap_semua_daerah.csv",
+                mime="text/csv"
+            )
+
     # Tombol Kembali ke Menu Utama
     if st.button("Kembali"):
         st.session_state.screen = "menu"

@@ -29,7 +29,7 @@ def save_figure_as_image(fig, dpi=600):
     buf.seek(0)
     return buf
 
-# Peramalan menggunakan metode Kuadrat Terkecil
+# Fungsi untuk melakukan peramalan menggunakan metode Kuadrat Terkecil
 def forecast_least_squares(years, values, forecast_years):
     x = np.arange(len(years))
     y = values.values.astype(float)

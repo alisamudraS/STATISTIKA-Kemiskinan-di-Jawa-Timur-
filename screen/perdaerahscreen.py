@@ -29,20 +29,20 @@ def save_figure_as_image(fig, dpi=600):
     buf.seek(0)
     return buf
 
-# Fungsi untuk melakukan peramalan menggunakan metode Kuadrat Terkecil
 def forecast_least_squares(years, values, forecast_years):
-    x = np.arange(len(years))
-    y = values.values.astype(float)
+    x = np.arange(len(years))  # Indeks tahun
+    y = values.values.astype(float)  # Data jumlah penduduk miskin
 
-    # Hitung koefisien regresi linier
-    A = np.vstack([x, np.ones(len(x))]).T
-    a, b = np.linalg.lstsq(A, y, rcond=None)[0]
+    # Hitung regresi linier (a = intersep, b = slope)
+    A = np.vstack([np.ones(len(x)), x]).T
+    a, b = np.linalg.lstsq(A, y, rcond=None)[0]  # a = intersep, b = slope
 
-    # Prediksi untuk tahun-tahun mendatang
+    # Prediksi untuk tahun mendatang
     x_forecast = np.arange(len(years), len(years) + len(forecast_years))
-    forecast_values = a * x_forecast + b
+    forecast_values = a + b * x_forecast  # Bentuk y = a + bx
 
     return forecast_years, forecast_values
+
 
 # Fungsi utama untuk layar Grafik Per Daerah
 def perdaerahscreen():
